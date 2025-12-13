@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#4CAF50">
+    <link rel="manifest" href="/manifest.json">
+    <title>即時停車系統</title>
+    <style>
+        /* (保持與原檔相同的 CSS) */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #667eea; min-height: 100vh; padding: 10px; }
+        .container { max-width: 400px; margin: 0 auto; background: white; border-radius: 15px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        .header { background: #4CAF50; color: white; padding: 20px; text-align: center; }
+        .header h1 { font-size: 20px; margin-bottom: 10px; }
+        .location-info { background: rgba(255,255,255,0.2); padding: 10px; border-radius: 8px; margin-top: 10px; font-size: 14px; }
+        .content { padding: 20px; }
+        .location-btn { width: 100%; background: #2196F3; color: white; border: none; padding: 15px; border-radius: 8px; font-size: 16px; margin-bottom: 15px; cursor: pointer; }
+        .location-btn:active { background: #1976D2; }
+        .location-btn:disabled { background: #ccc; }
+        .parking-list { max-height: 400px; overflow-y: auto; }
+        .parking-item { background: #f8f9fa; border-radius: 8px; padding: 15px; margin-bottom: 10px; border-left: 4px solid #4CAF50; }
+        .parking-item.full { border-left-color: #f44336; background: #ffebee; }
+        .parking-item.limited { border-left-color: #ff9800; background: #fff3e0; }
+        .parking-name { font-weight: bold; font-size: 16px; margin-bottom: 8px; color: #333; }
+        .parking-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .available-spots { font-size: 16px; font-weight: bold; }
+        .available-spots.high { color: #4CAF50; }
+        .available-spots.medium { color: #ff9800; }
+        .available-spots.low { color: #f44336; }
+        .distance { background: #e3f2fd; color: #1976d2; padding: 4px 8px; border-radius: 12px; font-size: 12px; }
+        .price-info { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; font-size: 13px; }
+        .price-item { background: white; padding: 6px; border-radius: 4px; text-align: center; }
+        .loading, .error { text-align: center; padding: 20px; margin: 10px 0; }
+        .error { background: #ffebee; color: #c62828; border-radius: 8px; }
+        .refresh-btn { position: fixed; bottom: 20px; right: 20px; width: 50px; height: 50px; background: #4CAF50; color: white; border: none; border-radius: 50%; font-size: 18px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
+        .refresh-btn:active { transform: scale(0.95); }
+        .spinning { animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .status-dot.high { background: #4CAF50; }
+        .status-dot.medium { background: #ff9800; }
+        .status-dot.low { background: #f44336; }
+        .manual-location { background: #f5f5f5; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
+        .section-title { font-weight: bold; margin-bottom: 10px; color: #333; font-size: 16px; }
+        .input-group { margin-bottom: 10px; }
+        .location-input { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; background: white; }
+        .location-input:focus { outline: none; border-color: #2196F3; box-shadow: 0 0 5px rgba(33, 150, 243, 0.3); }
+        .search-btn { width: 100%; background: #FF9800; color: white; border: none; padding: 12px; border-radius: 6px; font-size: 16px; cursor: pointer; margin-top: 5px; }
+        .search-btn:active { background: #F57C00; }
+        .search-btn:disabled { background: #ccc; }
+        .toggle-section { text-align: center; margin-bottom: 15px; }
+        .toggle-btn { background: #9C27B0; color: white; border: none; padding: 10px 20px; border-radius: 20px; font-size: 14px; cursor: pointer; }
+        .toggle-btn:active { background: #7B1FA2; }
+        .address-info { background: rgba(255,152,0,0.1); padding: 10px; border-radius: 6px; margin-top: 10px; font-size: 14px; color: #E65100; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🅿️ 即時停車系統</h1>
+            <div class="location-info" id="locationInfo">
+                📍 點擊下方按鈕獲取位置
+            </div>
+        </div>
+
+        <div class="content">
+            <button class="location-btn" id="getLocationBtn">
+                📍 獲取我的位置
+            </button>
+
+            <div class="manual-location" id="manualLocationSection" style="display: none;">
+                <div class="section-title">📝 手動輸入位置</div>
+                <div class="input-group">
+                    <select id="citySelect" class="location-input">
+                        <option value="">選擇城市</option>
+                        <option value="台北市">台北市</option>
+                        <option value="新北市">新北市</option>
+                        <option value="桃園市">桃園市</option>
+                        <option value="台中市">台中市</option>
+                        <option value="台南市">台南市</option>
+                        <option value="高雄市">高雄市</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <input type="text" id="districtInput" class="location-input" placeholder="請輸入行政區 (例: 中正區)">
+                </div>
+                <div class="input-group">
+                    <input type="text" id="streetInput" class="location-input" placeholder="請輸入路名 (例: 忠孝東路)">
+                </div>
+                <button class="search-btn" id="searchByAddressBtn">
+                    🔍 搜尋附近停車場
+                </button>
+            </div>
+
+            <div class="toggle-section">
+                <button class="toggle-btn" id="toggleManualBtn">
+                    🔄 改用手動輸入位置
+                </button>
+            </div>
+
+            <div id="errorMessage"></div>
+            <div id="loadingMessage"></div>
+            <div id="parkingList" class="parking-list"></div>
+        </div>
+    </div>
+
+    <button class="refresh-btn" id="refreshBtn">🔄</button>
+
+    <script>
+        let currentLocation = null;
+        let parkingData = [];
+
+        const cityCoordinates = {
+            '台北市': { lat: 25.0330, lng: 121.5654 },
+            '新北市': { lat: 25.0173, lng: 121.4467 },
+            '桃園市': { lat: 24.9937, lng: 121.3009 },
+            '台中市': { lat: 24.1477, lng: 120.6736 },
+            '台南市': { lat: 22.9999, lng: 120.2269 },
+            '高雄市': { lat: 22.6273, lng: 120.3014 }
+        };
+
+        const districtOffsets = {
+            '中正區': { lat: 0.005, lng: 0.005 },
+            '大同區': { lat: 0.010, lng: -0.005 },
+            '中山區': { lat: 0.015, lng: 0.010 },
+            '松山區': { lat: 0.020, lng: 0.015 },
+            '大安區': { lat: -0.005, lng: 0.010 },
+            '萬華區': { lat: -0.010, lng: -0.010 },
+            '信義區': { lat: 0.000, lng: 0.020 },
+            '士林區': { lat: 0.030, lng: 0.005 },
+            '北投區': { lat: 0.040, lng: -0.010 },
+            '內湖區': { lat: 0.025, lng: 0.025 },
+            '南港區': { lat: 0.015, lng: 0.030 },
+            '文山區': { lat: -0.020, lng: 0.005 }
+        };
+
+        function initParkingData() {
+            parkingData = [
+                { id: 1, name: '台北車站地下停車場', lat: 25.0478, lng: 121.5170, totalSpots: 200, availableSpots: 45, hourlyRate: 40, maxDailyRate: 240, height: 2.1, city: '台北市', district: '中正區' },
+                { id: 2, name: '信義威秀停車場', lat: 25.0360, lng: 121.5645, totalSpots: 150, availableSpots: 8, hourlyRate: 60, maxDailyRate: 360, height: 2.0, city: '台北市', district: '信義區' },
+                { id: 3, name: '西門町停車場', lat: 25.0420, lng: 121.5070, totalSpots: 80, availableSpots: 0, hourlyRate: 50, maxDailyRate: 300, height: 1.9, city: '台北市', district: '萬華區' },
+                { id: 4, name: '松山機場停車場', lat: 25.0697, lng: 121.5514, totalSpots: 300, availableSpots: 120, hourlyRate: 30, maxDailyRate: 180, height: 2.2, city: '台北市', district: '松山區' },
+                { id: 5, name: '大安森林公園停車場', lat: 25.0329, lng: 121.5354, totalSpots: 100, availableSpots: 25, hourlyRate: 35, maxDailyRate: 210, height: 2.0, city: '台北市', district: '大安區' },
+                { id: 6, name: '板橋車站停車場', lat: 25.0138, lng: 121.4627, totalSpots: 250, availableSpots: 89, hourlyRate: 35, maxDailyRate: 200, height: 2.1, city: '新北市', district: '板橋區' },
+                { id: 7, name: '桃園車站停車場', lat: 24.9890, lng: 121.3135, totalSpots: 180, availableSpots: 56, hourlyRate: 30, maxDailyRate: 150, height: 2.0, city: '桃園市', district: '桃園區' },
+                { id: 8, name: '台中車站停車場', lat: 24.1369, lng: 120.6839, totalSpots: 200, availableSpots: 78, hourlyRate: 25, maxDailyRate: 120, height: 2.1, city: '台中市', district: '中區' },
+                { id: 9, name: '忠孝復興站停車場', lat: 25.0417, lng: 121.5440, totalSpots: 120, availableSpots: 34, hourlyRate: 50, maxDailyRate: 300, height: 2.0, city: '台北市', district: '大安區' },
+                { id: 10, name: '市政府站停車場', lat: 25.0408, lng: 121.5678, totalSpots: 160, availableSpots: 67, hourlyRate: 55, maxDailyRate: 330, height: 2.1, city: '台北市', district: '信義區' },
+                { id: 11, name: '中山站停車場', lat: 25.0525, lng: 121.5200, totalSpots: 90, availableSpots: 12, hourlyRate: 45, maxDailyRate: 270, height: 1.9, city: '台北市', district: '中山區' },
+                { id: 12, name: '淡水老街停車場', lat: 25.1677, lng: 121.4362, totalSpots: 150, availableSpots: 89, hourlyRate: 30, maxDailyRate: 150, height: 2.2, city: '新北市', district: '淡水區' },
+                { id: 13, name: '九份老街停車場', lat: 25.1095, lng: 121.8456, totalSpots: 80, availableSpots: 23, hourlyRate: 40, maxDailyRate: 200, height: 2.0, city: '新北市', district: '瑞芳區' },
+                { id: 14, name: '林口三井停車場', lat: 25.0770, lng: 121.3540, totalSpots: 300, availableSpots: 156, hourlyRate: 35, maxDailyRate: 180, height: 2.1, city: '新北市', district: '林口區' },
+                { id: 15, name: '中壢車站停車場', lat: 24.9537, lng: 121.2257, totalSpots: 180, availableSpots: 45, hourlyRate: 25, maxDailyRate: 120, height: 2.0, city: '桃園市', district: '中壢區' },
+                { id: 16, name: '東區地下街停車場', lat: 25.0418, lng: 121.5313, totalSpots: 140, availableSpots: 28, hourlyRate: 45, maxDailyRate: 270, height: 2.0, city: '台北市', district: '大安區' },
+                { id: 17, name: '國父紀念館停車場', lat: 25.0400, lng: 121.5600, totalSpots: 200, availableSpots: 87, hourlyRate: 40, maxDailyRate: 240, height: 2.1, city: '台北市', district: '信義區' },
+                { id: 18, name: '華山文創園區停車場', lat: 25.0435, lng: 121.5292, totalSpots: 100, availableSpots: 15, hourlyRate: 50, maxDailyRate: 300, height: 1.9, city: '台北市', district: '中正區' },
+                { id: 19, name: '光華商場停車場', lat: 25.0456, lng: 121.5330, totalSpots: 80, availableSpots: 32, hourlyRate: 40, maxDailyRate: 240, height: 2.0, city: '台北市', district: '中正區' },
+                { id: 20, name: '京站時尚廣場停車場', lat: 25.0490, lng: 121.5170, totalSpots: 160, availableSpots: 67, hourlyRate: 55, maxDailyRate: 330, height: 2.1, city: '台北市', district: '大同區' },
+                { id: 21, name: '南京復興站停車場', lat: 25.0520, lng: 121.5440, totalSpots: 120, availableSpots: 43, hourlyRate: 50, maxDailyRate: 300, height: 2.0, city: '台北市', district: '中山區' },
+                { id: 22, name: '民生社區停車場', lat: 25.0580, lng: 121.5520, totalSpots: 90, availableSpots: 21, hourlyRate: 35, maxDailyRate: 210, height: 2.0, city: '台北市', district: '松山區' },
+                { id: 23, name: '師大夜市停車場', lat: 25.0260, lng: 121.5280, totalSpots: 70, availableSpots: 8, hourlyRate: 45, maxDailyRate: 270, height: 1.9, city: '台北市', district: '大安區' },
+                { id: 24, name: '公館商圈停車場', lat: 25.0150, lng: 121.5350, totalSpots: 110, availableSpots: 56, hourlyRate: 35, maxDailyRate: 210, height: 2.0, city: '台北市', district: '中正區' },
+                { id: 25, name: '永康街停車場', lat: 25.0320, lng: 121.5290, totalSpots: 60, availableSpots: 12, hourlyRate: 50, maxDailyRate: 300, height: 1.8, city: '台北市', district: '大安區' }
+            ];
+        }
+
+        function calculateDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng/2) * Math.sin(dLng/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        function getCurrentLocation() {
+            const btn = document.getElementById('getLocationBtn');
+            const locationInfo = document.getElementById('locationInfo');
+
+            btn.disabled = true;
+            btn.textContent = '📍 定位中...';
+            showLoading('正在獲取您的位置...');
+
+            if (!navigator.geolocation) {
+                showError('您的裝置不支援定位功能');
+                btn.disabled = false;
+                btn.textContent = '📍 獲取我的位置';
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    currentLocation = {
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude
+                    };
+
+                    locationInfo.innerHTML = '📍 位置已獲取 (精確度: ' +
+                        Math.round(position.coords.accuracy) + '公尺)';
+
+                    btn.textContent = '✅ 位置已獲取';
+                    btn.disabled = false;
+                    searchNearbyParking();
+                },
+                function(error) {
+                    let errorMessage = '無法獲取位置';
+                    if (error.code === 1) { errorMessage = '請允許位置存取權限'; }
+                    else if (error.code === 2) { errorMessage = '位置資訊無法取得'; }
+                    else if (error.code === 3) { errorMessage = '定位請求逾時'; }
+
+                    showError(errorMessage);
+                    btn.disabled = false;
+                    btn.textContent = '📍 重新獲取位置';
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+            );
+        }
+
+        function searchNearbyParking() {
+            if (!currentLocation) { showError('請先獲取位置'); return; }
+            showLoading('搜尋3公里內停車場...');
+
+            const parkingWithDistance = parkingData.map(parking => ({
+                ...parking,
+                distance: calculateDistance(currentLocation.lat, currentLocation.lng, parking.lat, parking.lng)
+            })).filter(p => p.distance <= 3).sort((a, b) => a.distance - b.distance);
+
+            setTimeout(() => {
+                if (parkingWithDistance.length === 0) {
+                    document.getElementById('parkingList').innerHTML =
+                        '<div class="loading">3公里內沒有找到停車場<br><small>請嘗試移動到其他位置</small></div>';
+                } else {
+                    displayParkingList(parkingWithDistance);
+                }
+                hideLoading();
+            }, 800);
+        }
+
+        function searchNearbyParkingByLocation() {
+            if (!currentLocation) { showError('目前沒有可用的位置'); return; }
+            showLoading('根據指定位置搜尋3公里內停車場...');
+
+            const list = parkingData.map(parking => ({
+                ...parking,
+                distance: calculateDistance(currentLocation.lat, currentLocation.lng, parking.lat, parking.lng)
+            })).filter(p => p.distance <= 3).sort((a, b) => a.distance - b.distance);
+
+            setTimeout(() => {
+                if (list.length === 0) {
+                    document.getElementById('parkingList').innerHTML =
+                        '<div class="loading">3公里內沒有找到停車場</div>';
+                } else {
+                    displayParkingList(list);
+                }
+                hideLoading();
+            }, 600);
+        }
+
+        function displayParkingList(parkingList) {
+            const container = document.getElementById('parkingList');
+
+            if (parkingList.length === 0) {
+                container.innerHTML = '<div class="loading">附近沒有找到停車場</div>';
+                return;
+            }
+
+            container.innerHTML = parkingList.map(parking => {
+                const ratio = parking.availableSpots / parking.totalSpots;
+                let availabilityClass = 'high';
+                let statusClass = '';
+
+                if (parking.availableSpots === 0) {
+                    availabilityClass = 'low';
+                    statusClass = 'full';
+                } else if (ratio < 0.2) {
+                    availabilityClass = 'low';
+                    statusClass = 'limited';
+                } else if (ratio < 0.5) {
+                    availabilityClass = 'medium';
+                    statusClass = 'limited';
+                }
+
+                return `
+                    <div class="parking-item ${statusClass}">
+                        <div class="parking-name">
+                            <span class="status-dot ${availabilityClass}"></span>
+                            ${parking.name}
+                        </div>
+                        <div class="parking-info">
+                            <div class="available-spots ${availabilityClass}">
+                                ${parking.availableSpots}/${parking.totalSpots} 車位
+                            </div>
+                            <div class="distance">
+                                ${parking.distance < 1 ?
+                                    Math.round(parking.distance * 1000) + 'm' :
+                                    parking.distance.toFixed(1) + 'km'}
+                            </div>
+                        </div>
+                        <div class="price-info">
+                            <div class="price-item">
+                                <strong>時租</strong><br>
+                                $${parking.hourlyRate}/小時
+                            </div>
+                            <div class="price-item">
+                                <strong>日租上限</strong><br>
+                                $${parking.maxDailyRate}
+                            </div>
+                            <div class="price-item">
+                                <strong>車高限制</strong><br>
+                                ${parking.height}m
+                            </div>
+                            <div class="price-item">
+                                <strong>狀態</strong><br>
+                                ${parking.availableSpots === 0 ? '已滿' :
+                                  parking.availableSpots < 20 ? '剩餘不多' : '充足'}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function refreshData() {
+            const refreshBtn = document.getElementById('refreshBtn');
+            refreshBtn.classList.add('spinning');
+
+            parkingData.forEach(parking => {
+                const change = Math.floor(Math.random() * 21) - 10;
+                parking.availableSpots = Math.max(0, Math.min(parking.totalSpots, parking.availableSpots + change));
+            });
+
+            setTimeout(() => {
+                const manualSection = document.getElementById('manualLocationSection');
+                if (currentLocation) {
+                    if (manualSection.style.display === 'block') searchNearbyParkingByLocation();
+                    else searchNearbyParking();
+                }
+                refreshBtn.classList.remove('spinning');
+            }, 1000);
+        }
+
+        function showLoading(message) {
+            document.getElementById('loadingMessage').innerHTML =
+                '<div class="loading">' + message + '</div>';
+            document.getElementById('errorMessage').innerHTML = '';
+        }
+        function hideLoading() { document.getElementById('loadingMessage').innerHTML = ''; }
+        function showError(message) {
+            document.getElementById('errorMessage').innerHTML =
+                '<div class="error">' + message + '</div>';
+            document.getElementById('loadingMessage').innerHTML = '';
+        }
+
+        function toggleManualInput() {
+            const manualSection = document.getElementById('manualLocationSection');
+            const toggleBtn = document.getElementById('toggleManualBtn');
+            const gpsBtn = document.getElementById('getLocationBtn');
+
+            if (manualSection.style.display === 'none') {
+                manualSection.style.display = 'block';
+                toggleBtn.textContent = '🔄 改用GPS定位';
+                gpsBtn.style.display = 'none';
+            } else {
+                manualSection.style.display = 'none';
+                toggleBtn.textContent = '🔄 改用手動輸入位置';
+                gpsBtn.style.display = 'block';
+            }
+        }
+
+        function searchByAddress() {
+            const city = document.getElementById('citySelect').value;
+            const district = document.getElementById('districtInput').value.trim();
+            const street = document.getElementById('streetInput').value.trim();
+            const locationInfo = document.getElementById('locationInfo');
+
+            if (!city) { showError('請選擇城市'); return; }
+            if (!district) { showError('請輸入行政區'); return; }
+
+            showLoading('正在根據地址搜尋停車場...');
+
+            const baseCoord = cityCoordinates[city];
+            if (!baseCoord) { showError('不支援的城市'); return; }
+
+            let estimatedLat = baseCoord.lat;
+            let estimatedLng = baseCoord.lng;
+
+            const districtKey = Object.keys(districtOffsets).find(key =>
+                district.includes(key.replace('區', '')) || key.includes(district.replace('區', ''))
+            );
+
+            if (districtKey) {
+                const offset = districtOffsets[districtKey];
+                estimatedLat += offset.lat;
+                estimatedLng += offset.lng;
+            } else {
+                estimatedLat += (Math.random() - 0.5) * 0.02;
+                estimatedLng += (Math.random() - 0.5) * 0.02;
+            }
+
+            currentLocation = { lat: estimatedLat, lng: estimatedLng };
+
+            let addressText = city + district;
+            if (street) addressText += street;
+
+            locationInfo.innerHTML = `
+                <div>📍 手動輸入位置</div>
+                <div class="address-info">
+                    ${addressText}<br>
+                    <small>預估座標: ${estimatedLat.toFixed(4)}, ${estimatedLng.toFixed(4)}</small>
+                </div>
+            `;
+
+            setTimeout(() => { searchNearbyParkingByLocation(); }, 1000);
+        }
+
+        // 註冊事件與初始化
+        document.getElementById('getLocationBtn').addEventListener('click', getCurrentLocation);
+        document.getElementById('refreshBtn').addEventListener('click', refreshData);
+        document.getElementById('toggleManualBtn').addEventListener('click', toggleManualInput);
+        document.getElementById('searchByAddressBtn').addEventListener('click', searchByAddress);
+
+        initParkingData();
+
+        // 如果支援 Service Worker，註冊它（用於 PWA / 離線快取）
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then(() => console.log('Service Worker 已註冊'))
+                .catch(err => console.warn('Service Worker 註冊失敗:', err));
+        }
+    </script>
+</body>
+</html>
